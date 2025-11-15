@@ -14,7 +14,7 @@ import pl.lambada.songsync.data.remote.lyrics_providers.LyricsProviderService
 import pl.lambada.songsync.domain.model.SongInfo
 import pl.lambada.songsync.services.MusicState
 import pl.lambada.songsync.services.PlaybackInfo
-import pl.lambada.songsync.util.LyricsUtils // <--- This is the important line!
+import pl.lambada.songsync.util.parseLyrics // <--- THIS IS THE CORRECT IMPORT
 
 // This is the state for our new "Live Lyrics" screen
 data class LiveLyricsUiState(
@@ -87,7 +87,7 @@ class LiveLyricsViewModel(
                     }
 
                     // 3. Tell the "Translator" to parse the lyrics
-                    val parsedLyrics = LyricsUtils.parseLyrics(lyricsString)
+                    val parsedLyrics = parseLyrics(lyricsString) // <--- THIS IS THE CORRECT CALL
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         parsedLyrics = parsedLyrics

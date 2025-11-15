@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import pl.lambada.songsync.R
+import androidx.compose.foundation.layout.height // <--- THIS WAS THE MISSING IMPORT
 
 // This is the "Live Lyrics" screen (The Face)
 @OptIn(ExperimentalMaterial3Api::class)

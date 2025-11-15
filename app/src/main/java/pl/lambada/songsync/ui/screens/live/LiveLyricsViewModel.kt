@@ -14,7 +14,7 @@ import pl.lambada.songsync.data.remote.lyrics_providers.LyricsProviderService
 import pl.lambada.songsync.domain.model.SongInfo
 import pl.lambada.songsync.services.MusicState
 import pl.lambada.songsync.services.PlaybackInfo
-import pl.lambada.songsync.util.LyricsUtils
+import pl.lambada.songsync.util.LyricsUtils // <--- THIS WAS THE MISSING IMPORT
 
 // This is the state for our new "Live Lyrics" screen
 data class LiveLyricsUiState(

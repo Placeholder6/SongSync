@@ -19,6 +19,7 @@ import pl.lambada.songsync.ui.screens.lyricsFetch.LyricsFetchScreen
 import pl.lambada.songsync.ui.screens.lyricsFetch.LyricsFetchViewModel
 import pl.lambada.songsync.ui.screens.settings.SettingsScreen
 import pl.lambada.songsync.ui.screens.settings.SettingsViewModel
+import pl.lambada.songsync.ui.screens.live.LiveLyricsScreen // <--- THIS WAS THE MISSING IMPORT
 import pl.lambada.songsync.ui.screens.live.LiveLyricsViewModel
 
 /**
@@ -34,10 +35,10 @@ fun Navigator(
     lyricsProviderService: LyricsProviderService
 ) {
     SharedTransitionLayout {
-        val liveLyricsViewModel: LiveLyricsViewModel = viewModel {
-            LiveLyricsViewModel.Factory(lyricsProviderService, userSettingsController)
-        }
-        }
+        val liveLyricsViewModel: LiveLyricsViewModel = viewModel( // <--- THIS SYNTAX IS NOW FIXED
+            factory = LiveLyricsViewModel.Factory(lyricsProviderService, userSettingsController)
+        )
+
         NavHost(
             navController = navController,
             startDestination = if (userSettingsController.passedInit) ScreenHome else InitScreen,
@@ -84,16 +85,12 @@ fun Navigator(
                 )
             }
             animatedComposable<LiveLyricsScreen> {
-                // We will create this "LiveLyricsScreen" file in the next step!
-                // It will show an error for now, that is OK.
-                //
                 LiveLyricsScreen(
                     navController = navController,
                     viewModel = liveLyricsViewModel,
                     animatedVisibilityScope = this,
                 )
             }
-        
         }
     }
 }

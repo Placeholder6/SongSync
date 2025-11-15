@@ -14,7 +14,7 @@ import pl.lambada.songsync.data.remote.lyrics_providers.LyricsProviderService
 import pl.lambada.songsync.domain.model.SongInfo
 import pl.lambada.songsync.services.MusicState
 import pl.lambada.songsync.services.PlaybackInfo
-import pl.lambada.songsync.util.parseLyrics // <--- THIS IS THE CORRECT IMPORT
+import pl.lambada.songsync.util.parseLyrics
 
 // This is the state for our new "Live Lyrics" screen
 data class LiveLyricsUiState(
@@ -55,19 +55,48 @@ class LiveLyricsViewModel(
                 }
 
                 val (title, artist) = songPair
+                // *** THIS IS THE FIX ***
+                // We now reset the *entire* state, clearing old lyrics immediately.
                 _uiState.value = LiveLyricsUiState(
                     songTitle = title,
                     songArtist = artist,
                     isLoading = true,
-                    isPlaying = true
+                    isPlaying = true, // Assume playing
+                    parsedLyrics = emptyList(), // <--- EXPLICITLY CLEAR LYRICS
+                    currentLyricLine = "",      // <--- EXPLICITLY CLEAR LINE
+                    currentLyricIndex = -1        // <--- EXPLICITLY CLEAR INDEX
                 )
 
                 // 2. Tell the "Librarian" to get the lyrics
                 lyricsFetchJob = launch {
+                    
+                    // *** THIS IS THE NEW, CRUCIAL STEP ***
+                    // Step A: Go get the "library card" (SongInfo) first!
+                    val songInfo = try {
+                        lyricsProviderService.getSongInfo(
+                            query = SongInfo(title, artist),
+                            offset = 0,
+                            provider = userSettingsController.selectedProvider
+                        )
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    // If we couldn't even find the song, show an error.
+                    if (songInfo == null) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            currentLyricLine = "Song not found by provider."
+                        )
+                        return@launch
+                    }
+
+                    // Step B: NOW get the lyrics using the *correct* info
                     val lyricsString = try {
                         lyricsProviderService.getSyncedLyrics(
-                            title,
-                            artist,
+                            // Pass the *found* title/artist, not the raw one
+                            songInfo.songName ?: title, 
+                            songInfo.artistName ?: artist,
                             userSettingsController.selectedProvider,
                             userSettingsController.includeTranslation,
                             userSettingsController.includeRomanization,
@@ -75,7 +104,7 @@ class LiveLyricsViewModel(
                             userSettingsController.unsyncedFallbackMusixmatch
                         )
                     } catch (e: Exception) {
-                        null // Failed to get lyrics
+                        null
                     }
 
                     if (lyricsString == null) {
@@ -87,7 +116,7 @@ class LiveLyricsViewModel(
                     }
 
                     // 3. Tell the "Translator" to parse the lyrics
-                    val parsedLyrics = parseLyrics(lyricsString) // <--- THIS IS THE CORRECT CALL
+                    val parsedLyrics = parseLyrics(lyricsString)
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         parsedLyrics = parsedLyrics
@@ -106,25 +135,27 @@ class LiveLyricsViewModel(
             MusicState.playbackInfo.collect { playbackInfo ->
                 if (playbackInfo == null) return@collect
                 
+                timestampUpdateJob?.cancel() // Stop any previous timer loop
                 _uiState.value = _uiState.value.copy(isPlaying = playbackInfo.isPlaying)
-                
-                if (!playbackInfo.isPlaying) {
-                    // If paused, just update the timestamp once and stop
-                    updateCurrentLyric(playbackInfo.position)
-                } else {
-                    // If playing, start a loop to update the time
-                    while (true) {
-                        val (isPlaying, position, timestamp, speed) = MusicState.playbackInfo.value ?: break
-                        if (!isPlaying) break // Stop loop if paused
-                        
-                        // Calculate the "real-time" position
-                        val timePassed = (System.currentTimeMillis() - timestamp) * speed
-                        val currentPosition = position + timePassed.toLong()
-                        
-                        updateCurrentLyric(currentPosition)
-                        
-                        delay(200) // Update 5 times per second
+
+                if (playbackInfo.isPlaying) {
+                    // If it's playing, start a new timer loop
+                    timestampUpdateJob = launch {
+                        while (true) {
+                            // We must read the latest info on every loop
+                            val (isPlaying, basePosition, baseTime, speed) = MusicState.playbackInfo.value ?: break
+                            if (!isPlaying) break // Stop if it gets paused
+
+                            val timePassed = (System.currentTimeMillis() - baseTime) * speed
+                            val currentPosition = basePosition + timePassed.toLong()
+                            updateCurrentLyric(currentPosition)
+                            
+                            delay(200) // Update 5x/sec
+                        }
                     }
+                } else {
+                    // If it's paused, just update the lyric one last time
+                    updateCurrentLyric(playbackInfo.position)
                 }
             }
         }
@@ -136,14 +167,19 @@ class LiveLyricsViewModel(
 
         // Find the correct lyric line for the current time
         val currentIndex = lyrics.indexOfLast { (time, _) ->
-            // Convert "01:23.456" string to milliseconds
-            val parts = time.split(":", ".")
-            val minutes = parts[0].toLong()
-            val seconds = parts[1].toLong()
-            val millis = parts[2].toLong()
-            val lyricTime = (minutes * 60 * 1000) + (seconds * 1000) + millis
-            
-            lyricTime <= currentPosition
+            try {
+                // Convert "01:23.456" string to milliseconds
+                val parts = time.split(":", ".")
+                val minutes = parts[0].toLong()
+                val seconds = parts[1].toLong()
+                val millis = parts[2].toLong()
+                val lyricTime = (minutes * 60 * 1000) + (seconds * 1000) + millis
+                
+                lyricTime <= currentPosition
+            } catch (e: Exception) {
+                // Failsafe for a bad lyric line
+                false
+            }
         }
 
         if (currentIndex != -1 && currentIndex != _uiState.value.currentLyricIndex) {

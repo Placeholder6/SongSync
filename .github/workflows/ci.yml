@@ -40,3 +40,35 @@ jobs:
         with:
           name: app-debug.apk
           path: ./app/build/outputs/apk/debug/app-debug.apk
+
+  build-release:
+    if: github.event_name == 'push'
+    name: Build signed release APK
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      checks: write
+      pull-requests: write
+      statuses: write
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: "zulu"
+          java-version: "17"
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release.apk
+          path: ./app/build/outputs/apk/release/app-release.apk

@@ -14,7 +14,7 @@ import pl.lambada.songsync.data.remote.lyrics_providers.LyricsProviderService
 import pl.lambada.songsync.domain.model.SongInfo
 import pl.lambada.songsync.services.MusicState
 import pl.lambada.songsync.services.PlaybackInfo
-import pl.lambada.songsync.util.parseLyrics
+import pl.lambada.songsync.util.parseLyrics // <--- THIS IS THE IMPORT FOR parseLyrics
 
 data class LiveLyricsUiState(
     val songTitle: String = "Listening for music...",
@@ -82,7 +82,7 @@ class LiveLyricsViewModel(
                         isLoading = false,
                         currentLyricLine = "Song not found by provider."
                     )
-                    return@launch
+                    return@collectLatest // <--- THIS IS THE FIX (was return@launch)
                 }
 
                 val lyricsString = try {
@@ -104,10 +104,10 @@ class LiveLyricsViewModel(
                         isLoading = false,
                         currentLyricLine = "No lyrics found for this song."
                     )
-                    return@launch
+                    return@collectLatest // <--- THIS IS THE FIX (was return@launch)
                 }
 
-                val parsedLyrics = parseLyrics(lyricsString)
+                val parsedLyrics = parseLyrics(lyricsString) // <--- This now correctly calls the imported function
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     parsedLyrics = parsedLyrics

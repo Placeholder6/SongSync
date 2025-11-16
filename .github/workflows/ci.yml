@@ -46,6 +46,12 @@ jobs:
     name: Build signed release APK
     runs-on: ubuntu-latest
 
+    env:
+      RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEYSTORE_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      KEYSTORE_BASE_64: ${{ secrets.KEYSTORE_BASE_64 }}
+
     permissions:
       contents: read
       packages: write
@@ -64,11 +70,16 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
+      - name: Set up signing key
+        run: |
+          base64 -d <<< $KEYSTORE_BASE_64 > release.keystore
+          echo "RELEASE_STORE_FILE=$(realpath release.keystore)" >> $GITHUB_ENV
+
       - name: Build release APK
         run: ./gradlew assembleRelease
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-unsigned.apk
-          path: ./app/build/outputs/apk/
+          name: app-release.apk
+          path: ./app/build/outputs/apk/release/app-release.apk

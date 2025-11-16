@@ -4,7 +4,7 @@ THIS FORK WILL BE HEAVILY CODED WITH AI AND FILLED WITH BUGS, SINCE I DON'T KNOW
 ### Added Features 
 Displaying Synced lyrics through now playing music 
 
-planned: overlay, word to word, smootger animatios for the ui
+planned: overlay, word to word, smootger animations for the ui
 
 # SongSync
 

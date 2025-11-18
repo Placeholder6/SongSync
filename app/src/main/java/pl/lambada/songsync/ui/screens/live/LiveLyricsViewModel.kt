@@ -20,14 +20,14 @@ import pl.lambada.songsync.util.Providers
 data class LiveLyricsUiState(
     val songTitle: String = "Listening for music...",
     val songArtist: String = "",
-    val coverArt: Any? = null,
+    val coverArt: Any? = null, // Holds the Album Art
     val parsedLyrics: List<Pair<String, String>> = emptyList(),
     val currentLyricLine: String = "",
     val currentLyricIndex: Int = -1,
     val isLoading: Boolean = false,
     val isPlaying: Boolean = false,
     val currentTimestamp: Long = 0L,
-    val lrcOffset: Int = 0
+    val lrcOffset: Int = 0 // Holds the Offset
 )
 
 class LiveLyricsViewModel(
@@ -44,7 +44,6 @@ class LiveLyricsViewModel(
     private var queryOffset = 0
 
     init {
-        // COLLECTOR 1: Handles Song Changes
         viewModelScope.launch {
             MusicState.currentSong.collectLatest { songTriple ->
                 timestampUpdateJob?.cancel()
@@ -57,7 +56,6 @@ class LiveLyricsViewModel(
 
                 val (title, artist, art) = songTriple
                 
-                // New song detected: Reset everything
                 queryOffset = 0
                 _uiState.value = _uiState.value.copy(
                     lrcOffset = 0,
@@ -68,7 +66,6 @@ class LiveLyricsViewModel(
             }
         }
 
-        // COLLECTOR 2: Handles Play/Pause/Time
         viewModelScope.launch {
             MusicState.playbackInfo.collect { playbackInfo ->
                 if (playbackInfo == null) {
@@ -108,11 +105,8 @@ class LiveLyricsViewModel(
     fun forceRefreshLyrics() {
         val currentState = _uiState.value
         if (currentState.songTitle != "Listening for music...") {
-            // *** SMART RETRY LOGIC ***
-            // If we previously failed to find the song (offset 0 failed), 
-            // incrementing to offset 1 is useless. We should Retry (keep offset 0).
-            // If we DID find lyrics but the user clicked refresh (maybe they are wrong),
-            // THEN we try the next result (increment offset).
+            // Only increment offset if we previously failed to find lyrics
+            // If the previous error was "Song not found", we want to retry (offset 0)
             if (currentState.currentLyricLine.contains("Song not found", ignoreCase = true)) {
                 queryOffset = 0
             } else {

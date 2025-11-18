@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
-import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
@@ -139,7 +138,6 @@ class NotificationListener : NotificationListenerService() {
 // --- THE BRIDGE ---
 object MusicState {
     // Triple<Title, Artist, Art (String or Bitmap)>
-    // Changed third parameter to Any? to support Bitmaps
     private val _currentSong = MutableStateFlow<Triple<String, String, Any?>?>(null)
     val currentSong = _currentSong.asStateFlow()
 

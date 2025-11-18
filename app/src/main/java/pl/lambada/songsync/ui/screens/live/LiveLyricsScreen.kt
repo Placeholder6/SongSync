@@ -26,7 +26,7 @@ import androidx.compose.material.icons.filled.Exposure
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.MusicNote // This is the required icon import
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -178,11 +178,11 @@ fun LiveLyricsScreen(
                 art = uiState.coverArt
             )
 
-            // *** FIX: Added fillMaxWidth() to this Box ***
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (uiState.isLoading) {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 } else if (uiState.parsedLyrics.isEmpty()) {
+                    // Centered Error Message
                     Column(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -358,7 +358,7 @@ fun OffsetControlBar(
     onOffsetChange: (Int) -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(50), // Pill shape
+        shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shadowElevation = 4.dp,

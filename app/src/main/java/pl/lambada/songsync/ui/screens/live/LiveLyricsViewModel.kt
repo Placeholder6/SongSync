@@ -25,12 +25,13 @@ data class LiveLyricsUiState(
     val currentLyricIndex: Int = -1,
     val isLoading: Boolean = false,
     val isPlaying: Boolean = false,
-    val currentTimestamp: Long = 0L
+    val currentTimestamp: Long = 0L,
+    val lrcOffset: Int = 0 // Timing offset in milliseconds
 )
 
 class LiveLyricsViewModel(
     private val lyricsProviderService: LyricsProviderService,
-    val userSettingsController: UserSettingsController // Changed to public/accessible
+    val userSettingsController: UserSettingsController
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LiveLyricsUiState())
@@ -38,6 +39,9 @@ class LiveLyricsViewModel(
 
     private var lyricsFetchJob: Job? = null
     private var timestampUpdateJob: Job? = null
+    
+    // Pagination offset for search results (e.g. finding the next match)
+    private var queryOffset = 0
 
     init {
         // COLLECTOR 1: Handles Song Changes
@@ -47,9 +51,15 @@ class LiveLyricsViewModel(
 
                 if (songPair == null) {
                     _uiState.value = LiveLyricsUiState()
+                    queryOffset = 0
                     return@collectLatest
                 }
 
+                // Reset query offset for a new song
+                queryOffset = 0
+                // Reset LRC offset for a new song
+                _uiState.value = _uiState.value.copy(lrcOffset = 0)
+                
                 fetchLyricsFor(songPair.first, songPair.second)
             }
         }
@@ -85,35 +95,51 @@ class LiveLyricsViewModel(
         }
     }
 
-    // Function to switch provider and refresh
     fun updateProvider(provider: Providers) {
         userSettingsController.updateSelectedProviders(provider)
+        // Reset query offset when changing provider to start from top result
+        queryOffset = 0
         forceRefreshLyrics()
     }
 
-    // Function to manually refresh lyrics
     fun forceRefreshLyrics() {
         val currentState = _uiState.value
         if (currentState.songTitle != "Listening for music...") {
+            // Increment query offset to try the "next" result (like "Try Again" button)
+            queryOffset++
             fetchLyricsFor(currentState.songTitle, currentState.songArtist)
+        }
+    }
+
+    fun updateSearchQuery(title: String, artist: String) {
+        queryOffset = 0 // Reset pagination for a new manual query
+        fetchLyricsFor(title, artist)
+    }
+
+    fun updateLrcOffset(offset: Int) {
+        _uiState.value = _uiState.value.copy(lrcOffset = offset)
+        // Immediately re-calculate current lyric with new offset
+        MusicState.playbackInfo.value?.let {
+            if (!it.isPlaying) updateCurrentLyric(it.position)
         }
     }
 
     private fun fetchLyricsFor(title: String, artist: String) {
         lyricsFetchJob?.cancel()
 
-        _uiState.value = LiveLyricsUiState(
+        _uiState.value = _uiState.value.copy(
             songTitle = title,
             songArtist = artist,
             isLoading = true,
-            isPlaying = _uiState.value.isPlaying
+            parsedLyrics = emptyList(),
+            currentLyricLine = ""
         )
 
         lyricsFetchJob = viewModelScope.launch {
             val songInfo = try {
                 lyricsProviderService.getSongInfo(
                     query = SongInfo(title, artist),
-                    offset = 0,
+                    offset = queryOffset, // Use the pagination offset
                     provider = userSettingsController.selectedProvider
                 )
             } catch (e: Exception) {
@@ -123,7 +149,7 @@ class LiveLyricsViewModel(
             if (songInfo == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    currentLyricLine = "Song not found by provider."
+                    currentLyricLine = "Song not found (Offset: $queryOffset)."
                 )
                 return@launch
             }
@@ -145,7 +171,7 @@ class LiveLyricsViewModel(
             if (lyricsString == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    currentLyricLine = "No lyrics found for this song."
+                    currentLyricLine = "No lyrics found."
                 )
                 return@launch
             }
@@ -159,8 +185,15 @@ class LiveLyricsViewModel(
     }
 
     private fun updateCurrentLyric(currentPosition: Long) {
-        val lyrics = _uiState.value.parsedLyrics
+        val state = _uiState.value
+        val lyrics = state.parsedLyrics
         if (lyrics.isEmpty()) return
+
+        // Apply the user-defined offset to the current player position logic
+        // OR conceptually: LyricTimestamp + Offset <= CurrentPosition
+        // If offset is +500ms, it means lyrics should appear 500ms LATER. 
+        // So we look for: LyricTimestamp <= CurrentPosition - Offset
+        val effectivePosition = currentPosition - state.lrcOffset
 
         val currentIndex = lyrics.indexOfLast { (time, _) ->
             try {
@@ -169,14 +202,15 @@ class LiveLyricsViewModel(
                 val seconds = parts[1].toLong()
                 val millis = parts[2].toLong()
                 val lyricTime = (minutes * 60 * 1000) + (seconds * 1000) + millis
-                lyricTime <= currentPosition
+                
+                lyricTime <= effectivePosition
             } catch (e: Exception) {
                 false
             }
         }
 
-        if (currentIndex != -1 && currentIndex != _uiState.value.currentLyricIndex) {
-            _uiState.value = _uiState.value.copy(
+        if (currentIndex != -1 && currentIndex != state.currentLyricIndex) {
+            _uiState.value = state.copy(
                 currentLyricLine = lyrics[currentIndex].second,
                 currentLyricIndex = currentIndex
             )

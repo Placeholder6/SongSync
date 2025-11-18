@@ -20,13 +20,14 @@ import pl.lambada.songsync.util.Providers
 data class LiveLyricsUiState(
     val songTitle: String = "Listening for music...",
     val songArtist: String = "",
+    val coverArtUri: String? = null, // NEW FIELD
     val parsedLyrics: List<Pair<String, String>> = emptyList(),
     val currentLyricLine: String = "",
     val currentLyricIndex: Int = -1,
     val isLoading: Boolean = false,
     val isPlaying: Boolean = false,
     val currentTimestamp: Long = 0L,
-    val lrcOffset: Int = 0 // Timing offset in milliseconds
+    val lrcOffset: Int = 0
 )
 
 class LiveLyricsViewModel(
@@ -40,27 +41,30 @@ class LiveLyricsViewModel(
     private var lyricsFetchJob: Job? = null
     private var timestampUpdateJob: Job? = null
     
-    // Pagination offset for search results (e.g. finding the next match)
     private var queryOffset = 0
 
     init {
         // COLLECTOR 1: Handles Song Changes
         viewModelScope.launch {
-            MusicState.currentSong.collectLatest { songPair ->
+            MusicState.currentSong.collectLatest { songTriple ->
                 timestampUpdateJob?.cancel()
 
-                if (songPair == null) {
+                if (songTriple == null) {
                     _uiState.value = LiveLyricsUiState()
                     queryOffset = 0
                     return@collectLatest
                 }
 
-                // Reset query offset for a new song
-                queryOffset = 0
-                // Reset LRC offset for a new song
-                _uiState.value = _uiState.value.copy(lrcOffset = 0)
+                // Destructure the Triple (Title, Artist, ArtUri)
+                val (title, artist, artUri) = songTriple
                 
-                fetchLyricsFor(songPair.first, songPair.second)
+                queryOffset = 0
+                _uiState.value = _uiState.value.copy(
+                    lrcOffset = 0,
+                    coverArtUri = artUri // Save the art URI
+                )
+                
+                fetchLyricsFor(title, artist)
             }
         }
 
@@ -97,7 +101,6 @@ class LiveLyricsViewModel(
 
     fun updateProvider(provider: Providers) {
         userSettingsController.updateSelectedProviders(provider)
-        // Reset query offset when changing provider to start from top result
         queryOffset = 0
         forceRefreshLyrics()
     }
@@ -105,20 +108,18 @@ class LiveLyricsViewModel(
     fun forceRefreshLyrics() {
         val currentState = _uiState.value
         if (currentState.songTitle != "Listening for music...") {
-            // Increment query offset to try the "next" result (like "Try Again" button)
             queryOffset++
             fetchLyricsFor(currentState.songTitle, currentState.songArtist)
         }
     }
 
     fun updateSearchQuery(title: String, artist: String) {
-        queryOffset = 0 // Reset pagination for a new manual query
+        queryOffset = 0
         fetchLyricsFor(title, artist)
     }
 
     fun updateLrcOffset(offset: Int) {
         _uiState.value = _uiState.value.copy(lrcOffset = offset)
-        // Immediately re-calculate current lyric with new offset
         MusicState.playbackInfo.value?.let {
             if (!it.isPlaying) updateCurrentLyric(it.position)
         }
@@ -139,7 +140,7 @@ class LiveLyricsViewModel(
             val songInfo = try {
                 lyricsProviderService.getSongInfo(
                     query = SongInfo(title, artist),
-                    offset = queryOffset, // Use the pagination offset
+                    offset = queryOffset,
                     provider = userSettingsController.selectedProvider
                 )
             } catch (e: Exception) {
@@ -189,10 +190,6 @@ class LiveLyricsViewModel(
         val lyrics = state.parsedLyrics
         if (lyrics.isEmpty()) return
 
-        // Apply the user-defined offset to the current player position logic
-        // OR conceptually: LyricTimestamp + Offset <= CurrentPosition
-        // If offset is +500ms, it means lyrics should appear 500ms LATER. 
-        // So we look for: LyricTimestamp <= CurrentPosition - Offset
         val effectivePosition = currentPosition - state.lrcOffset
 
         val currentIndex = lyrics.indexOfLast { (time, _) ->

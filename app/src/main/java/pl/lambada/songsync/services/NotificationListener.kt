@@ -20,7 +20,6 @@ class NotificationListener : NotificationListenerService() {
     private var mediaSessionManager: MediaSessionManager? = null
     private var currentController: MediaController? = null
     
-    // This is our single, reusable callback
     private val mMediaControllerCallback = object : MediaController.Callback() {
         override fun onPlaybackStateChanged(state: PlaybackState?) {
             updatePlaybackState(state)
@@ -31,10 +30,9 @@ class NotificationListener : NotificationListenerService() {
         }
 
         override fun onSessionDestroyed() {
-            // When a session is destroyed (e.g., app closes), reset everything
             currentController?.unregisterCallback(this)
             currentController = null
-            MusicState.updateSong(null, null)
+            MusicState.updateSong(null, null, null)
         }
     }
 
@@ -89,11 +87,9 @@ class NotificationListener : NotificationListenerService() {
                 if (newController != null) {
                     registerCallback(newController)
                 } else {
-                    // *** THIS IS THE FIX ***
-                    // Music has stopped, so disconnect from everything.
                     currentController?.unregisterCallback(mMediaControllerCallback)
                     currentController = null
-                    MusicState.updateSong(null, null) // This will clear the UI
+                    MusicState.updateSong(null, null, null)
                 }
             }, componentName)
             
@@ -103,19 +99,12 @@ class NotificationListener : NotificationListenerService() {
     }
 
     private fun registerCallback(controller: MediaController) {
-        // If it's the same controller, we don't need to do anything
         if (currentController?.sessionToken == controller.sessionToken) return
         
-        // 1. Unregister from the *old* controller
         currentController?.unregisterCallback(mMediaControllerCallback)
-        
-        // 2. Save the *new* controller
         currentController = controller
-        
-        // 3. Register on the *new* controller
         controller.registerCallback(mMediaControllerCallback)
         
-        // 4. Immediately update with the new song's info
         updateMetadata(controller.metadata)
         updatePlaybackState(controller.playbackState)
     }
@@ -124,8 +113,11 @@ class NotificationListener : NotificationListenerService() {
         metadata?.let {
             val title = it.getString(MediaMetadata.METADATA_KEY_TITLE)
             val artist = it.getString(MediaMetadata.METADATA_KEY_ARTIST)
-            Log.d("SongSync", "Detected Song: $title by $artist")
-            MusicState.updateSong(title, artist)
+            val artUri = it.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI) 
+                         ?: it.getString(MediaMetadata.METADATA_KEY_ART_URI)
+            
+            Log.d("SongSync", "Detected Song: $title by $artist (Art: $artUri)")
+            MusicState.updateSong(title, artist, artUri)
         }
     }
 
@@ -139,18 +131,19 @@ class NotificationListener : NotificationListenerService() {
 }
 
 // --- THE BRIDGE ---
+// Stores Title, Artist, AND ArtUri now
 object MusicState {
-    private val _currentSong = MutableStateFlow<Pair<String, String>?>(null)
+    // Triple<Title, Artist, ArtUri?>
+    private val _currentSong = MutableStateFlow<Triple<String, String, String?>?>(null)
     val currentSong = _currentSong.asStateFlow()
 
     private val _playbackInfo = MutableStateFlow<PlaybackInfo?>(null)
     val playbackInfo = _playbackInfo.asStateFlow()
 
-    fun updateSong(title: String?, artist: String?) {
-        // This is the fix: Set to null first to force collectLatest to re-fire
+    fun updateSong(title: String?, artist: String?, artUri: String?) {
         _currentSong.value = null
         if (title != null && artist != null) {
-            _currentSong.value = title to artist
+            _currentSong.value = Triple(title, artist, artUri)
         }
     }
 
@@ -162,6 +155,6 @@ object MusicState {
 data class PlaybackInfo(
     val isPlaying: Boolean,
     val position: Long,
-    val timestamp: Long, // System time when the position was read
+    val timestamp: Long,
     val speed: Float
 )

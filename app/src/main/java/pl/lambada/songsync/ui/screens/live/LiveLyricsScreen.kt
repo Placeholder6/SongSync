@@ -26,7 +26,7 @@ import androidx.compose.material.icons.filled.Exposure
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.MusicNote // This is the required icon import
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -150,21 +150,7 @@ fun LiveLyricsScreen(
                 }
             )
         },
-        bottomBar = {
-             if (uiState.parsedLyrics.isNotEmpty()) {
-                 Box(
-                     modifier = Modifier
-                         .fillMaxWidth()
-                         .padding(bottom = 32.dp),
-                     contentAlignment = Alignment.Center
-                 ) {
-                     OffsetControlBar(
-                         offset = uiState.lrcOffset,
-                         onOffsetChange = viewModel::updateLrcOffset
-                     )
-                 }
-             }
-        }
+        // *** MOVED OFFSET BAR FROM HERE TO MAIN CONTENT ***
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -182,7 +168,6 @@ fun LiveLyricsScreen(
                 if (uiState.isLoading) {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 } else if (uiState.parsedLyrics.isEmpty()) {
-                    // Centered Error Message
                     Column(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -247,6 +232,20 @@ fun LiveLyricsScreen(
                         }
 
                         item { Box(modifier = Modifier.height(250.dp)) }
+                    }
+                }
+                
+                // *** FLOATING OFFSET BAR ***
+                if (uiState.parsedLyrics.isNotEmpty()) {
+                    Box(
+                         modifier = Modifier
+                             .align(Alignment.BottomCenter)
+                             .padding(bottom = 24.dp)
+                    ) {
+                        OffsetControlBar(
+                             offset = uiState.lrcOffset,
+                             onOffsetChange = viewModel::updateLrcOffset
+                        )
                     }
                 }
             }

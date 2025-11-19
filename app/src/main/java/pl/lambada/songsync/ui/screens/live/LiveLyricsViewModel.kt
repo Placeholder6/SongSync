@@ -20,14 +20,14 @@ import pl.lambada.songsync.util.Providers
 data class LiveLyricsUiState(
     val songTitle: String = "Listening for music...",
     val songArtist: String = "",
-    val coverArt: Any? = null, // Holds the Album Art
+    val coverArt: Any? = null,
     val parsedLyrics: List<Pair<String, String>> = emptyList(),
     val currentLyricLine: String = "",
     val currentLyricIndex: Int = -1,
     val isLoading: Boolean = false,
     val isPlaying: Boolean = false,
     val currentTimestamp: Long = 0L,
-    val lrcOffset: Int = 0 // Holds the Offset
+    val lrcOffset: Int = 0
 )
 
 class LiveLyricsViewModel(
@@ -44,8 +44,10 @@ class LiveLyricsViewModel(
     private var queryOffset = 0
 
     init {
+        // COLLECTOR 1: Handles Song Changes
         viewModelScope.launch {
             MusicState.currentSong.collectLatest { songTriple ->
+                // When song changes, we DO want to stop the old timer immediately
                 timestampUpdateJob?.cancel()
 
                 if (songTriple == null) {
@@ -66,6 +68,7 @@ class LiveLyricsViewModel(
             }
         }
 
+        // COLLECTOR 2: Handles Play/Pause/Time
         viewModelScope.launch {
             MusicState.playbackInfo.collect { playbackInfo ->
                 if (playbackInfo == null) {
@@ -74,22 +77,33 @@ class LiveLyricsViewModel(
                 }
 
                 _uiState.value = _uiState.value.copy(isPlaying = playbackInfo.isPlaying)
-                timestampUpdateJob?.cancel()
 
                 if (playbackInfo.isPlaying) {
-                    timestampUpdateJob = launch {
-                        while (true) {
-                            val (isPlaying, basePosition, baseTime, speed) = MusicState.playbackInfo.value ?: break
-                            if (!isPlaying) break
+                    // *** FIX FOR BUG #1 ***
+                    // Only start the job if it's not already running.
+                    // If it IS running, we let it continue. The loop inside reads 
+                    // MusicState.playbackInfo.value directly, so it will pick up 
+                    // the new timestamp/position automatically in the next iteration.
+                    if (timestampUpdateJob == null || timestampUpdateJob?.isActive == false) {
+                        timestampUpdateJob = launch {
+                            while (true) {
+                                // Read the LATEST info directly from the StateFlow
+                                val currentInfo = MusicState.playbackInfo.value
+                                
+                                if (currentInfo == null || !currentInfo.isPlaying) break
 
-                            val timePassed = (System.currentTimeMillis() - baseTime) * speed
-                            val currentPosition = basePosition + timePassed.toLong()
-                            updateCurrentLyric(currentPosition)
-                            
-                            delay(200)
+                                val (isPlaying, basePosition, baseTime, speed) = currentInfo
+                                val timePassed = (System.currentTimeMillis() - baseTime) * speed
+                                val currentPosition = basePosition + timePassed.toLong()
+                                
+                                updateCurrentLyric(currentPosition)
+                                delay(200) // Update 5x per second
+                            }
                         }
                     }
                 } else {
+                    // If paused, cancel the loop and update one last time to snap to exact position
+                    timestampUpdateJob?.cancel()
                     updateCurrentLyric(playbackInfo.position)
                 }
             }
@@ -105,14 +119,11 @@ class LiveLyricsViewModel(
     fun forceRefreshLyrics() {
         val currentState = _uiState.value
         if (currentState.songTitle != "Listening for music...") {
-            // Only increment offset if we previously failed to find lyrics
-            // If the previous error was "Song not found", we want to retry (offset 0)
             if (currentState.currentLyricLine.contains("Song not found", ignoreCase = true)) {
                 queryOffset = 0
             } else {
                 queryOffset++
             }
-            
             fetchLyricsFor(currentState.songTitle, currentState.songArtist)
         }
     }
@@ -124,8 +135,16 @@ class LiveLyricsViewModel(
 
     fun updateLrcOffset(offset: Int) {
         _uiState.value = _uiState.value.copy(lrcOffset = offset)
+        // Force an immediate update so the user sees the result instantly
         MusicState.playbackInfo.value?.let {
-            if (!it.isPlaying) updateCurrentLyric(it.position)
+            // We calculate effective position based on whether it's playing or not
+            val currentPos = if (it.isPlaying) {
+                 val timePassed = (System.currentTimeMillis() - it.timestamp) * it.speed
+                 it.position + timePassed.toLong()
+            } else {
+                it.position
+            }
+            updateCurrentLyric(currentPos)
         }
     }
 

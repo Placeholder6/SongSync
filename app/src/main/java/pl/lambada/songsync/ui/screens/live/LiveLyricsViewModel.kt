@@ -56,11 +56,8 @@ class LiveLyricsViewModel(
                 val (title, artist, art) = songTriple
                 
                 // Only refresh if the song actually changed
-                // We ignore small updates to avoid resetting the "Smart Search" progress
                 if (title != _uiState.value.songTitle && _uiState.value.songTitle != "Listening for music...") {
-                     // If we are already working on this song (even if we modified the title UI), don't restart
-                     // This check is tricky because we modify the UI title during search. 
-                     // Ideally, we'd compare against a 'rawTitle' but simple check is okay for now.
+                     // Keep going if we are just refining the same song
                 }
 
                 // Force reset on new song detection
@@ -119,15 +116,11 @@ class LiveLyricsViewModel(
     fun forceRefreshLyrics() {
         val currentState = _uiState.value
         if (currentState.songTitle != "Listening for music...") {
-            // Smart Retry: If we failed before, retry from 0. If we succeeded, try next.
             if (currentState.currentLyricLine.contains("not found", ignoreCase = true)) {
                 queryOffset = 0
             } else {
                 queryOffset++
             }
-            // We pass the current displayed title/artist because that might be the "fixed" version 
-            // the user wants to keep, OR we can revert to original? 
-            // Let's try to fetch based on what is currently on screen to be consistent.
             fetchLyricsFor(currentState.songTitle, currentState.songArtist)
         }
     }
@@ -162,15 +155,14 @@ class LiveLyricsViewModel(
         lyricsFetchJob = viewModelScope.launch {
             val strategies = mutableListOf<SearchStrategy>()
             
-            // 1. ORIGINAL
+            // 1. ORIGINAL (Try exactly what the notification gave us)
             strategies.add(SearchStrategy("Original", originalTitle, originalArtist))
             
-            // 2. ARTIST FIXER (e.g. "Unknown" -> Split Title)
-            if (isArtistSuspicious(originalArtist)) {
-                val (splitTitle, splitArtist) = trySplitArtistFromTitle(originalTitle)
-                if (splitArtist != null) {
-                    strategies.add(SearchStrategy("Fixing 'Unknown' Artist", splitTitle, splitArtist))
-                }
+            // 2. SPLIT FROM TITLE (Fixes "Artist - Song" in title field)
+            // We try this UNCONDITIONALLY now. Even if artist is "88rising", we prefer "Joji" if found in title.
+            val (splitTitle, splitArtist) = trySplitArtistFromTitle(originalTitle)
+            if (splitArtist != null) {
+                strategies.add(SearchStrategy("Extracted Artist from Title", splitTitle, splitArtist))
             }
 
             // 3. CLEANED (Remove "Official Video", "ft.", etc.)
@@ -180,15 +172,16 @@ class LiveLyricsViewModel(
                 strategies.add(SearchStrategy("Removing Junk Text", cleanedTitle, cleanedArtist))
             }
 
-            // 4. CLEANED + SPLIT (Clean first, then split if needed)
-            if (isArtistSuspicious(cleanedArtist)) {
-                 val (splitCleanTitle, splitCleanArtist) = trySplitArtistFromTitle(cleanedTitle)
-                 if (splitCleanArtist != null) {
-                     strategies.add(SearchStrategy("Cleaning & Fixing Artist", splitCleanTitle, splitCleanArtist))
+            // 4. SPLIT & CLEAN (Split first, then remove junk from the result)
+            // Example: "joji - rain on me [official]" -> Split: "rain on me [official]" -> Clean: "rain on me"
+            if (splitArtist != null) {
+                 val cleanSplitTitle = cleanText(splitTitle)
+                 if (cleanSplitTitle != splitTitle) {
+                     strategies.add(SearchStrategy("Cleaned Extracted Title", cleanSplitTitle, splitArtist))
                  }
             }
 
-            // 5. SUPER CLEAN (Remove all brackets)
+            // 5. SUPER CLEAN (Aggressively remove brackets)
             val superCleanTitle = superCleanText(originalTitle)
             if (superCleanTitle != cleanedTitle && superCleanTitle.isNotBlank()) {
                 strategies.add(SearchStrategy("Aggressive Filtering", superCleanTitle, cleanedArtist))
@@ -197,7 +190,6 @@ class LiveLyricsViewModel(
             var success = false
             
             for (strategy in strategies) {
-                // If Paging (Try Again), stick to the first valid strategy to avoid jumping logic
                 if (queryOffset > 0 && strategy.label != strategies.first().label) continue
 
                 // *** UI UPDATE: Show the user what we are searching for ***
@@ -206,15 +198,12 @@ class LiveLyricsViewModel(
                     songArtist = strategy.artist,
                     currentLyricLine = "[${strategy.label}] Searching..."
                 )
-                // Small delay so the user can actually see the text change (visual feedback)
                 delay(300)
 
                 if (tryFetchLyrics(strategy.title, strategy.artist)) {
                     success = true
-                    // We found it! The UI already shows the correct "Fixed" Title/Artist.
-                    // We just clear the status message.
                     _uiState.value = _uiState.value.copy(
-                        currentLyricLine = "" // Clear status
+                        currentLyricLine = "" 
                     )
                     break 
                 }
@@ -264,18 +253,12 @@ class LiveLyricsViewModel(
 
     data class SearchStrategy(val label: String, val title: String, val artist: String)
 
-    private fun isArtistSuspicious(artist: String): Boolean {
-        val lower = artist.lowercase()
-        return lower.contains("unknown") || lower.contains("various") || lower.isBlank() || lower == "<unknown>"
-    }
-
     private fun trySplitArtistFromTitle(title: String): Pair<String, String?> {
-        // Looks for "Artist - Title" or "Artist – Title" (en dash)
-        val separatorRegex = Pattern.compile("\\s+[-–]\\s+")
+        // Looks for "Artist - Title" or "Artist – Title" (en dash) or "Artist : Title"
+        val separatorRegex = Pattern.compile("\\s+[-–:]\\s+")
         val parts = separatorRegex.split(title)
         return if (parts.size >= 2) {
             // Assume Part 1 is Artist, Part 2 is Title
-            // "Glass Animals - Heat Waves" -> Title: Heat Waves, Artist: Glass Animals
             val newArtist = parts[0].trim()
             // Rejoin the rest in case there are multiple dashes
             val newTitle = parts.drop(1).joinToString(" - ").trim()
